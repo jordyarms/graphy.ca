@@ -175,29 +175,16 @@
 
   <script>
     const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
     const themeToggle = document.getElementById('themeToggle');
     const themeIcon = document.getElementById('themeIcon');
 
-    // Set canvas size
-    function resizeCanvas() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    }
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-
     // Theme management
     function getDefaultTheme() {
-      // Check localStorage first (user override)
       const savedTheme = localStorage.getItem('theme');
       if (savedTheme) return savedTheme;
-
-      // Fall back to system preference
       if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
         return 'dark';
       }
-
       return 'light';
     }
 
@@ -213,53 +200,335 @@
       localStorage.setItem('theme', newTheme);
     });
 
-    // Get current theme colors
+    function hexToRgb(hex) {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? {
+        r: parseInt(result[1], 16) / 255,
+        g: parseInt(result[2], 16) / 255,
+        b: parseInt(result[3], 16) / 255
+      } : { r: 1, g: 1, b: 1 };
+    }
+
     function getThemeColors() {
       const style = getComputedStyle(document.documentElement);
       return {
-        light: style.getPropertyValue('--light').trim(),
-        lightgray: style.getPropertyValue('--lightgray').trim(),
-        gray: style.getPropertyValue('--gray').trim(),
-        darkgray: style.getPropertyValue('--darkgray').trim(),
-        dark: style.getPropertyValue('--dark').trim(),
-        secondary: style.getPropertyValue('--secondary').trim(),
-        tertiary: style.getPropertyValue('--tertiary').trim(),
+        light: hexToRgb(style.getPropertyValue('--light').trim()),
+        secondary: hexToRgb(style.getPropertyValue('--secondary').trim()),
+        tertiary: hexToRgb(style.getPropertyValue('--tertiary').trim()),
+        darkgray: hexToRgb(style.getPropertyValue('--darkgray').trim()),
+        gray: hexToRgb(style.getPropertyValue('--gray').trim()),
       };
     }
 
-    // Placeholder rendering function - to be implemented
-    function render() {
-      const colors = getThemeColors();
+    // WebGPU Plasma Simulation
+    (async () => {
+      if (!navigator.gpu) {
+        console.error('WebGPU not supported');
+        return;
+      }
 
-      // Clear canvas with background color
-      ctx.fillStyle = colors.light;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const adapter = await navigator.gpu.requestAdapter();
+      const device = await adapter.requestDevice();
+      const context = canvas.getContext('webgpu');
 
-      // Placeholder: Simple gradient
-      const gradient = ctx.createRadialGradient(
-        canvas.width / 2, canvas.height / 2, 0,
-        canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) / 2
-      );
-      gradient.addColorStop(0, colors.secondary + '44');
-      gradient.addColorStop(1, colors.tertiary + '11');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+
+      function resizeCanvas() {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+
+        context.configure({
+          device,
+          format: presentationFormat,
+          alphaMode: 'premultiplied',
+        });
+      }
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+
+      // Compute shader for fluid simulation
+      const computeShader = `
+        struct Params {
+          width: u32,
+          height: u32,
+          time: f32,
+          mouseX: f32,
+          mouseY: f32,
+          mouseDown: f32,
+        }
+
+        @group(0) @binding(0) var<uniform> params: Params;
+        @group(0) @binding(1) var inputTex: texture_2d<f32>;
+        @group(0) @binding(2) var outputTex: texture_storage_2d<rgba16float, write>;
+
+        @compute @workgroup_size(8, 8)
+        fn main(@builtin(global_invocation_id) id: vec3u) {
+          let coords = vec2i(i32(id.x), i32(id.y));
+          if (coords.x >= i32(params.width) || coords.y >= i32(params.height)) {
+            return;
+          }
+
+          // Sample neighboring cells for diffusion
+          var sum = vec4f(0.0);
+          let offsets = array<vec2i, 9>(
+            vec2i(-1, -1), vec2i(0, -1), vec2i(1, -1),
+            vec2i(-1,  0), vec2i(0,  0), vec2i(1,  0),
+            vec2i(-1,  1), vec2i(0,  1), vec2i(1,  1)
+          );
+          let weights = array<f32, 9>(
+            0.05, 0.1, 0.05,
+            0.1,  0.4, 0.1,
+            0.05, 0.1, 0.05
+          );
+
+          for (var i = 0; i < 9; i++) {
+            let sampleCoords = coords + offsets[i];
+            let clamped = clamp(sampleCoords, vec2i(0), vec2i(i32(params.width) - 1, i32(params.height) - 1));
+            sum += textureLoad(inputTex, clamped, 0) * weights[i];
+          }
+
+          // Reaction-diffusion dynamics
+          let current = textureLoad(inputTex, coords, 0);
+          var value = sum;
+
+          // Add some wave motion
+          let fx = f32(coords.x) / f32(params.width);
+          let fy = f32(coords.y) / f32(params.height);
+          let wave = sin(fx * 6.28 + params.time * 0.5) * cos(fy * 6.28 + params.time * 0.3) * 0.02;
+          value.r += wave;
+          value.g += wave * 0.8;
+
+          // Mouse interaction
+          let mousePos = vec2f(params.mouseX, params.mouseY);
+          let pixelPos = vec2f(f32(coords.x) / f32(params.width), f32(coords.y) / f32(params.height));
+          let dist = length(pixelPos - mousePos);
+          if (dist < 0.1 && params.mouseDown > 0.5) {
+            let influence = (0.1 - dist) / 0.1;
+            value.r += influence * 0.5;
+            value.b += influence * 0.3;
+          }
+
+          // Decay and clamp
+          value = value * 0.98;
+          value = clamp(value, vec4f(0.0), vec4f(1.0));
+
+          textureStore(outputTex, coords, value);
+        }
+      `;
+
+      // Fragment shader with cell shading and outlines
+      const fragmentShader = `
+        struct VertexOutput {
+          @builtin(position) position: vec4f,
+          @location(0) uv: vec2f,
+        }
+
+        struct Colors {
+          background: vec3f,
+          color1: vec3f,
+          color2: vec3f,
+          color3: vec3f,
+          outline: vec3f,
+        }
+
+        @group(0) @binding(0) var simTex: texture_2d<f32>;
+        @group(0) @binding(1) var<uniform> colors: Colors;
+
+        @vertex
+        fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+          var pos = array<vec2f, 6>(
+            vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+            vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+          );
+          var uv = array<vec2f, 6>(
+            vec2f(0.0, 1.0), vec2f(1.0, 1.0), vec2f(0.0, 0.0),
+            vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0)
+          );
+
+          var output: VertexOutput;
+          output.position = vec4f(pos[vertexIndex], 0.0, 1.0);
+          output.uv = uv[vertexIndex];
+          return output;
+        }
+
+        @fragment
+        fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+          let dims = textureDimensions(simTex);
+          let coords = vec2i(i32(input.uv.x * f32(dims.x)), i32(input.uv.y * f32(dims.y)));
+
+          let value = textureLoad(simTex, coords, 0);
+          let intensity = (value.r + value.g + value.b) / 3.0;
+
+          // Edge detection for outlines
+          var edge = 0.0;
+          let offsets = array<vec2i, 4>(
+            vec2i(-1, 0), vec2i(1, 0), vec2i(0, -1), vec2i(0, 1)
+          );
+          for (var i = 0; i < 4; i++) {
+            let neighborCoords = clamp(coords + offsets[i], vec2i(0), vec2i(dims) - 1);
+            let neighbor = textureLoad(simTex, neighborCoords, 0);
+            let neighborIntensity = (neighbor.r + neighbor.g + neighbor.b) / 3.0;
+            edge += abs(intensity - neighborIntensity);
+          }
+
+          // Cell shading - quantize to palette bands
+          var color: vec3f;
+          if (edge > 0.3) {
+            color = colors.outline;
+          } else if (intensity < 0.25) {
+            color = colors.background;
+          } else if (intensity < 0.5) {
+            color = colors.color1;
+          } else if (intensity < 0.75) {
+            color = colors.color2;
+          } else {
+            color = colors.color3;
+          }
+
+          return vec4f(color, 1.0);
+        }
+      `;
+
+      // Create shader modules
+      const computeModule = device.createShaderModule({ code: computeShader });
+      const renderModule = device.createShaderModule({ code: fragmentShader });
+
+      // Create textures for ping-pong rendering
+      const textureDesc = {
+        size: [canvas.width, canvas.height],
+        format: 'rgba16float',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+      };
+      let texture0 = device.createTexture(textureDesc);
+      let texture1 = device.createTexture(textureDesc);
+
+      // Create uniform buffers
+      const paramsBuffer = device.createBuffer({
+        size: 24,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      const colorsBuffer = device.createBuffer({
+        size: 80,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      // Compute pipeline
+      const computePipeline = device.createComputePipeline({
+        layout: 'auto',
+        compute: {
+          module: computeModule,
+          entryPoint: 'main',
+        },
+      });
+
+      // Render pipeline
+      const renderPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+          module: renderModule,
+          entryPoint: 'vertexMain',
+        },
+        fragment: {
+          module: renderModule,
+          entryPoint: 'fragmentMain',
+          targets: [{ format: presentationFormat }],
+        },
+      });
+
+      // Mouse tracking
+      let mouseX = 0.5, mouseY = 0.5, mouseDown = 0;
+      canvas.addEventListener('mousemove', (e) => {
+        mouseX = e.clientX / canvas.width;
+        mouseY = e.clientY / canvas.height;
+      });
+      canvas.addEventListener('mousedown', () => mouseDown = 1);
+      canvas.addEventListener('mouseup', () => mouseDown = 0);
 
       // Animation loop
-      requestAnimationFrame(render);
-    }
+      let time = 0;
+      let frameCount = 0;
 
-    // Start rendering
-    render();
+      function updateColors() {
+        const colors = getThemeColors();
+        const colorData = new Float32Array([
+          colors.light.r, colors.light.g, colors.light.b, 0,
+          colors.secondary.r, colors.secondary.g, colors.secondary.b, 0,
+          colors.tertiary.r, colors.tertiary.g, colors.tertiary.b, 0,
+          colors.darkgray.r, colors.darkgray.g, colors.darkgray.b, 0,
+          colors.gray.r, colors.gray.g, colors.gray.b, 0,
+        ]);
+        device.queue.writeBuffer(colorsBuffer, 0, colorData);
+      }
+      updateColors();
 
-    // Canvas interaction placeholder
-    canvas.addEventListener('mousemove', (e) => {
-      // Interaction logic will go here
-    });
+      // Watch for theme changes
+      const observer = new MutationObserver(updateColors);
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-    canvas.addEventListener('click', (e) => {
-      // Click interaction logic will go here
-    });
+      function frame() {
+        time += 0.016;
+
+        // Update params
+        const params = new Float32Array([
+          canvas.width, canvas.height, time, mouseX, mouseY, mouseDown
+        ]);
+        device.queue.writeBuffer(paramsBuffer, 0, params);
+
+        const commandEncoder = device.createCommandEncoder();
+
+        // Compute pass
+        const computeBindGroup = device.createBindGroup({
+          layout: computePipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: paramsBuffer } },
+            { binding: 1, resource: texture0.createView() },
+            { binding: 2, resource: texture1.createView() },
+          ],
+        });
+
+        const computePass = commandEncoder.beginComputePass();
+        computePass.setPipeline(computePipeline);
+        computePass.setBindGroup(0, computeBindGroup);
+        computePass.dispatchWorkgroups(
+          Math.ceil(canvas.width / 8),
+          Math.ceil(canvas.height / 8)
+        );
+        computePass.end();
+
+        // Render pass
+        const renderBindGroup = device.createBindGroup({
+          layout: renderPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: texture1.createView() },
+            { binding: 1, resource: { buffer: colorsBuffer } },
+          ],
+        });
+
+        const renderPass = commandEncoder.beginRenderPass({
+          colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            loadOp: 'clear',
+            storeOp: 'store',
+          }],
+        });
+        renderPass.setPipeline(renderPipeline);
+        renderPass.setBindGroup(0, renderBindGroup);
+        renderPass.draw(6);
+        renderPass.end();
+
+        device.queue.submit([commandEncoder.finish()]);
+
+        // Swap textures
+        [texture0, texture1] = [texture1, texture0];
+
+        requestAnimationFrame(frame);
+      }
+
+      frame();
+    })();
   </script>
 </body>
 </html>
