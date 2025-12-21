@@ -345,8 +345,9 @@
           let scale = params.scale;
           let n1 = octaveNoise(coords.x * scale, coords.y * scale + params.time * 0.0006, 5u);
           let n2 = octaveNoise(coords.x * scale + 100.0, coords.y * scale + params.time * 0.0004, 4u);
+          let n3 = octaveNoise(coords.x * scale * 2.0 - 50.0, coords.y * scale * 2.0 + params.time * 0.0003, 3u);
 
-          var value = (n1 + n2) * 0.5 + mouseInfluence;
+          var value = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2) + mouseInfluence;
           value = (value + 1.0) * 0.5;
 
           textureStore(outputTex, vec2i(id.xy), vec4f(value, value, value, 1.0));
