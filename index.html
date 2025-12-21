@@ -232,6 +232,8 @@
       const context = canvas.getContext('webgpu');
       const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 
+      let noiseTexture;
+
       function resizeCanvas() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
@@ -239,6 +241,16 @@
           device,
           format: presentationFormat,
           alphaMode: 'premultiplied',
+        });
+
+        // Recreate texture with new dimensions
+        if (noiseTexture) {
+          noiseTexture.destroy();
+        }
+        noiseTexture = device.createTexture({
+          size: [canvas.width, canvas.height],
+          format: 'rgba16float',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
         });
       }
       resizeCanvas();
@@ -403,13 +415,6 @@
 
       const computeModule = device.createShaderModule({ code: computeShader });
       const renderModule = device.createShaderModule({ code: renderShader });
-
-      // Create noise texture
-      let noiseTexture = device.createTexture({
-        size: [canvas.width, canvas.height],
-        format: 'rgba16float',
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
-      });
 
       // Buffers
       const paramsBuffer = device.createBuffer({
