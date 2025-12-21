@@ -343,8 +343,8 @@
 
           // Perlin noise with time animation
           let scale = params.scale;
-          let n1 = octaveNoise(coords.x * scale, coords.y * scale + params.time * 0.0006, 4u);
-          let n2 = octaveNoise(coords.x * scale + 100.0, coords.y * scale + params.time * 0.0004, 3u);
+          let n1 = octaveNoise(coords.x * scale, coords.y * scale + params.time * 0.0006, 5u);
+          let n2 = octaveNoise(coords.x * scale + 100.0, coords.y * scale + params.time * 0.0004, 4u);
 
           var value = (n1 + n2) * 0.5 + mouseInfluence;
           value = (value + 1.0) * 0.5;
