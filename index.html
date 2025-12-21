@@ -1,2 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>graphy.ca</title>
+  <style>
+    :root {
+      --light: #fff8e7;
+      --lightgray: #e8dcc8;
+      --gray: #a8a08a;
+      --darkgray: #4a5240;
+      --dark: #2d3027;
+      --secondary: #556b2f;
+      --tertiary: #87a96b;
+      --highlight: rgba(135, 169, 107, 0.15);
+      --text-highlight: #d4e8c1aa;
+    }
 
-digital garden > <a href="https://notes.graphy.ca">notes.graphy.ca</a>
+    [data-theme="dark"] {
+      --light: #1a0f1f;
+      --lightgray: #2d1b3d;
+      --gray: #5a4866;
+      --darkgray: #d4a5c7;
+      --dark: #f5e6f0;
+      --secondary: #9d4edd;
+      --tertiary: #ff6b9d;
+      --highlight: rgba(157, 78, 221, 0.15);
+      --text-highlight: #ff6b9d44;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background-color: var(--light);
+      color: var(--dark);
+      overflow: hidden;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: crosshair;
+    }
+
+    .ui-overlay {
+      position: fixed;
+      pointer-events: none;
+    }
+
+    .ui-overlay > * {
+      pointer-events: auto;
+    }
+
+    .top-bar {
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 1.5rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .site-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--dark);
+      letter-spacing: -0.02em;
+    }
+
+    .theme-toggle {
+      background: var(--lightgray);
+      border: 2px solid var(--gray);
+      border-radius: 50%;
+      width: 2.5rem;
+      height: 2.5rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      transition: all 0.2s ease;
+      color: var(--dark);
+    }
+
+    .theme-toggle:hover {
+      background: var(--gray);
+      transform: scale(1.1);
+    }
+
+    .bottom-bar {
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 2rem;
+      display: flex;
+      justify-content: center;
+    }
+
+    .nav-link {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      background: var(--secondary);
+      color: var(--light);
+      text-decoration: none;
+      border-radius: 0.5rem;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .nav-link:hover {
+      background: var(--tertiary);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .nav-link::before {
+      content: '→ ';
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    .nav-link:hover::before {
+      opacity: 1;
+    }
+
+    @media (max-width: 768px) {
+      .top-bar {
+        padding: 1rem 1.5rem;
+      }
+
+      .site-title {
+        font-size: 1.2rem;
+      }
+
+      .theme-toggle {
+        width: 2rem;
+        height: 2rem;
+        font-size: 1rem;
+      }
+
+      .bottom-bar {
+        padding: 1.5rem;
+      }
+
+      .nav-link {
+        padding: 0.6rem 1.2rem;
+        font-size: 0.9rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <div class="ui-overlay top-bar">
+    <div class="site-title">graphy.ca</div>
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+      <span id="themeIcon">☀️</span>
+    </button>
+  </div>
+
+  <div class="ui-overlay bottom-bar">
+    <a href="https://notes.graphy.ca" class="nav-link">digital garden</a>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const themeToggle = document.getElementById('themeToggle');
+    const themeIcon = document.getElementById('themeIcon');
+
+    // Set canvas size
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Theme management
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    themeIcon.textContent = savedTheme === 'dark' ? '🌙' : '☀️';
+
+    themeToggle.addEventListener('click', () => {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', newTheme);
+      themeIcon.textContent = newTheme === 'dark' ? '🌙' : '☀️';
+      localStorage.setItem('theme', newTheme);
+    });
+
+    // Get current theme colors
+    function getThemeColors() {
+      const style = getComputedStyle(document.documentElement);
+      return {
+        light: style.getPropertyValue('--light').trim(),
+        lightgray: style.getPropertyValue('--lightgray').trim(),
+        gray: style.getPropertyValue('--gray').trim(),
+        darkgray: style.getPropertyValue('--darkgray').trim(),
+        dark: style.getPropertyValue('--dark').trim(),
+        secondary: style.getPropertyValue('--secondary').trim(),
+        tertiary: style.getPropertyValue('--tertiary').trim(),
+      };
+    }
+
+    // Placeholder rendering function - to be implemented
+    function render() {
+      const colors = getThemeColors();
+
+      // Clear canvas with background color
+      ctx.fillStyle = colors.light;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Placeholder: Simple gradient
+      const gradient = ctx.createRadialGradient(
+        canvas.width / 2, canvas.height / 2, 0,
+        canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) / 2
+      );
+      gradient.addColorStop(0, colors.secondary + '44');
+      gradient.addColorStop(1, colors.tertiary + '11');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Animation loop
+      requestAnimationFrame(render);
+    }
+
+    // Start rendering
+    render();
+
+    // Canvas interaction placeholder
+    canvas.addEventListener('mousemove', (e) => {
+      // Interaction logic will go here
+    });
+
+    canvas.addEventListener('click', (e) => {
+      // Click interaction logic will go here
+    });
+  </script>
+</body>
+</html>
