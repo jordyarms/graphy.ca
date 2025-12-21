@@ -77,8 +77,8 @@
     }
 
     .theme-toggle {
-      background: var(--lightgray);
-      border: 2px solid var(--gray);
+      background: transparent;
+      border: 2px solid var(--dark);
       border-radius: 50%;
       width: 2.5rem;
       height: 2.5rem;
@@ -92,7 +92,8 @@
     }
 
     .theme-toggle:hover {
-      background: var(--gray);
+      background: var(--dark);
+      color: var(--light);
       transform: scale(1.1);
     }
 
@@ -213,9 +214,11 @@
       const style = getComputedStyle(document.documentElement);
       return {
         light: hexToRgb(style.getPropertyValue('--light').trim()),
+        lightgray: hexToRgb(style.getPropertyValue('--lightgray').trim()),
+        gray: hexToRgb(style.getPropertyValue('--gray').trim()),
+        darkgray: hexToRgb(style.getPropertyValue('--darkgray').trim()),
         secondary: hexToRgb(style.getPropertyValue('--secondary').trim()),
         tertiary: hexToRgb(style.getPropertyValue('--tertiary').trim()),
-        darkgray: hexToRgb(style.getPropertyValue('--darkgray').trim()),
         dark: hexToRgb(style.getPropertyValue('--dark').trim()),
       };
     }
@@ -360,9 +363,11 @@
       const renderShader = `
         struct Colors {
           light: vec3f,
+          lightgray: vec3f,
+          gray: vec3f,
+          darkgray: vec3f,
           secondary: vec3f,
           tertiary: vec3f,
-          darkgray: vec3f,
           dark: vec3f,
         }
 
@@ -395,16 +400,20 @@
             edge = abs(value - n0) + abs(value - n1) + abs(value - n2) + abs(value - n3);
           }
 
-          // Cell shading
+          // Cell shading with more color variety
           var color: vec3f;
-          if (edge > 0.3) {
+          if (edge > 0.25) {
             color = colors.dark;
-          } else if (value < 0.3) {
+          } else if (value < 0.2) {
             color = colors.light;
+          } else if (value < 0.35) {
+            color = colors.lightgray;
           } else if (value < 0.5) {
             color = colors.secondary;
-          } else if (value < 0.7) {
+          } else if (value < 0.65) {
             color = colors.tertiary;
+          } else if (value < 0.8) {
+            color = colors.gray;
           } else {
             color = colors.darkgray;
           }
@@ -429,7 +438,7 @@
       device.queue.writeBuffer(permBuffer, 0, permutation);
 
       const colorsBuffer = device.createBuffer({
-        size: 80,
+        size: 112,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
       });
 
@@ -460,9 +469,11 @@
         const colors = getThemeColors();
         const colorData = new Float32Array([
           ...colors.light, 0,
+          ...colors.lightgray, 0,
+          ...colors.gray, 0,
+          ...colors.darkgray, 0,
           ...colors.secondary, 0,
           ...colors.tertiary, 0,
-          ...colors.darkgray, 0,
           ...colors.dark, 0,
         ]);
         device.queue.writeBuffer(colorsBuffer, 0, colorData);
