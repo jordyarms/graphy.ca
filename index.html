@@ -341,12 +341,21 @@
           let dist = length(coords - mousePos);
           let mouseInfluence = max(0.0, 1.0 - dist / 200.0) * 0.3;
 
-          // Perlin noise with time animation
+          // Perlin noise with time animation and rotation
           let scale = params.scale;
-          let n1 = octaveNoise(coords.x * scale, coords.y * scale + params.time * 0.0003, 4u);
-          let n2 = octaveNoise(coords.x * scale + 100.0, coords.y * scale + params.time * 0.0002, 3u);
+          let center = vec2f(f32(params.width) * 0.5, f32(params.height) * 0.5);
+          let relativePos = coords - center;
+          let angle = params.time * 0.0001;
+          let rotated = vec2f(
+            relativePos.x * cos(angle) - relativePos.y * sin(angle),
+            relativePos.x * sin(angle) + relativePos.y * cos(angle)
+          ) + center;
 
-          var value = (n1 + n2) * 0.5 + mouseInfluence;
+          let n1 = octaveNoise(rotated.x * scale, rotated.y * scale + params.time * 0.001, 5u);
+          let n2 = octaveNoise(coords.x * scale + 100.0, coords.y * scale + params.time * 0.0007, 4u);
+          let n3 = octaveNoise(coords.x * scale * 2.0 - 50.0, coords.y * scale * 2.0 + params.time * 0.0005, 3u);
+
+          var value = (n1 * 0.5 + n2 * 0.3 + n3 * 0.2) + mouseInfluence;
           value = (value + 1.0) * 0.5;
 
           textureStore(outputTex, vec2i(id.xy), vec4f(value, value, value, 1.0));
@@ -481,7 +490,7 @@
       function frame() {
         // Update params
         device.queue.writeBuffer(paramsBuffer, 0, new Float32Array([
-          canvas.width, canvas.height, time, mouseX, mouseY, 0.003
+          canvas.width, canvas.height, time, mouseX, mouseY, 0.005
         ]));
 
         const encoder = device.createCommandEncoder();
