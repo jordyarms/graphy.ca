@@ -1,2 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>graphy.ca</title>
+  <style>
+    :root {
+      --light: #fff8e7;
+      --lightgray: #e8dcc8;
+      --gray: #a8a08a;
+      --darkgray: #4a5240;
+      --dark: #2d3027;
+      --secondary: #556b2f;
+      --tertiary: #87a96b;
+      --highlight: rgba(135, 169, 107, 0.15);
+      --text-highlight: #d4e8c1aa;
+    }
 
-digital garden > <a href="https://notes.graphy.ca">notes.graphy.ca</a>
+    [data-theme="dark"] {
+      --light: #1a0f1f;
+      --lightgray: #2d1b3d;
+      --gray: #5a4866;
+      --darkgray: #d4a5c7;
+      --dark: #f5e6f0;
+      --secondary: #9d4edd;
+      --tertiary: #ff6b9d;
+      --highlight: rgba(157, 78, 221, 0.15);
+      --text-highlight: #ff6b9d44;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background-color: var(--light);
+      color: var(--dark);
+      overflow: hidden;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: crosshair;
+    }
+
+    .ui-overlay {
+      position: fixed;
+      pointer-events: none;
+    }
+
+    .ui-overlay > * {
+      pointer-events: auto;
+    }
+
+    .top-bar {
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 1.5rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .site-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--dark);
+      letter-spacing: -0.02em;
+    }
+
+    .theme-toggle {
+      background: transparent;
+      border: 2px solid var(--dark);
+      border-radius: 50%;
+      width: 2.5rem;
+      height: 2.5rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      transition: all 0.2s ease;
+      color: var(--dark);
+    }
+
+    .theme-toggle:hover {
+      background: var(--dark);
+      color: var(--light);
+      transform: scale(1.1);
+    }
+
+    .bottom-bar {
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 2rem;
+      display: flex;
+      justify-content: center;
+    }
+
+    .nav-link {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      background: transparent;
+      color: var(--dark);
+      text-decoration: none;
+      border: 2px solid var(--dark);
+      border-radius: 0.5rem;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+
+    .nav-link:hover {
+      background: var(--dark);
+      color: var(--light);
+      transform: translateY(-2px);
+    }
+
+    .nav-link::before {
+      content: '→ ';
+    }
+
+    @media (max-width: 768px) {
+      .top-bar {
+        padding: 1rem 1.5rem;
+      }
+
+      .site-title {
+        font-size: 1.2rem;
+      }
+
+      .theme-toggle {
+        width: 2rem;
+        height: 2rem;
+        font-size: 1rem;
+      }
+
+      .bottom-bar {
+        padding: 1.5rem;
+      }
+
+      .nav-link {
+        padding: 0.6rem 1.2rem;
+        font-size: 0.9rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <div class="ui-overlay top-bar">
+    <div class="site-title">graphy.ca</div>
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+      <span id="themeIcon">☀️</span>
+    </button>
+  </div>
+
+  <div class="ui-overlay bottom-bar">
+    <a href="https://notes.graphy.ca" class="nav-link">digital garden</a>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const themeToggle = document.getElementById('themeToggle');
+    const themeIcon = document.getElementById('themeIcon');
+
+    // Theme management
+    function getDefaultTheme() {
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme) return savedTheme;
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark';
+      }
+      return 'light';
+    }
+
+    const currentTheme = getDefaultTheme();
+    document.documentElement.setAttribute('data-theme', currentTheme);
+    themeIcon.textContent = currentTheme === 'dark' ? '🌙' : '☀️';
+
+    themeToggle.addEventListener('click', () => {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', newTheme);
+      themeIcon.textContent = newTheme === 'dark' ? '🌙' : '☀️';
+      localStorage.setItem('theme', newTheme);
+    });
+
+    function hexToRgb(hex) {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? [
+        parseInt(result[1], 16) / 255,
+        parseInt(result[2], 16) / 255,
+        parseInt(result[3], 16) / 255
+      ] : [1, 1, 1];
+    }
+
+    function getThemeColors() {
+      const style = getComputedStyle(document.documentElement);
+      return {
+        light: hexToRgb(style.getPropertyValue('--light').trim()),
+        lightgray: hexToRgb(style.getPropertyValue('--lightgray').trim()),
+        gray: hexToRgb(style.getPropertyValue('--gray').trim()),
+        darkgray: hexToRgb(style.getPropertyValue('--darkgray').trim()),
+        secondary: hexToRgb(style.getPropertyValue('--secondary').trim()),
+        tertiary: hexToRgb(style.getPropertyValue('--tertiary').trim()),
+        dark: hexToRgb(style.getPropertyValue('--dark').trim()),
+      };
+    }
+
+    // WebGPU Perlin Noise
+    (async () => {
+      if (!navigator.gpu) {
+        console.error('WebGPU not supported');
+        return;
+      }
+
+      const adapter = await navigator.gpu.requestAdapter();
+      const device = await adapter.requestDevice();
+      const context = canvas.getContext('webgpu');
+      const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+
+      let noiseTexture;
+
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        context.configure({
+          device,
+          format: presentationFormat,
+          alphaMode: 'premultiplied',
+        });
+
+        // Recreate texture with new dimensions
+        if (noiseTexture) {
+          noiseTexture.destroy();
+        }
+        noiseTexture = device.createTexture({
+          size: [canvas.width, canvas.height],
+          format: 'rgba16float',
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+        });
+      }
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+
+      // Generate permutation table for Perlin noise
+      const permutation = new Uint32Array(512);
+      for (let i = 0; i < 256; i++) permutation[i] = i;
+      for (let i = 255; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [permutation[i], permutation[j]] = [permutation[j], permutation[i]];
+      }
+      for (let i = 0; i < 256; i++) permutation[256 + i] = permutation[i];
+
+      // Compute shader - generates Perlin noise field
+      const computeShader = `
+        struct Params {
+          width: u32,
+          height: u32,
+          time: f32,
+          mouseX: f32,
+          mouseY: f32,
+          scale: f32,
+        }
+
+        @group(0) @binding(0) var<uniform> params: Params;
+        @group(0) @binding(1) var<storage, read> perm: array<u32, 512>;
+        @group(0) @binding(2) var outputTex: texture_storage_2d<rgba16float, write>;
+
+        fn fade(t: f32) -> f32 {
+          return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+        }
+
+        fn grad(hash: u32, x: f32, y: f32) -> f32 {
+          let h = hash & 15u;
+          let u = select(y, x, h < 8u);
+          let v = select(select(0.0, x, h == 12u || h == 14u), y, h < 4u);
+          return select(-u, u, (h & 1u) == 0u) + select(-v, v, (h & 2u) == 0u);
+        }
+
+        fn noise(x: f32, y: f32) -> f32 {
+          let X = u32(floor(x)) & 255u;
+          let Y = u32(floor(y)) & 255u;
+
+          let xf = fract(x);
+          let yf = fract(y);
+
+          let u = fade(xf);
+          let v = fade(yf);
+
+          let a = perm[X] + Y;
+          let aa = perm[a];
+          let ab = perm[a + 1u];
+          let b = perm[X + 1u] + Y;
+          let ba = perm[b];
+          let bb = perm[b + 1u];
+
+          return mix(
+            mix(grad(perm[aa], xf, yf), grad(perm[ba], xf - 1.0, yf), u),
+            mix(grad(perm[ab], xf, yf - 1.0), grad(perm[bb], xf - 1.0, yf - 1.0), u),
+            v
+          );
+        }
+
+        fn octaveNoise(x: f32, y: f32, octaves: u32) -> f32 {
+          var total = 0.0;
+          var frequency = 1.0;
+          var amplitude = 1.0;
+          var maxValue = 0.0;
+
+          for (var i = 0u; i < octaves; i++) {
+            total += noise(x * frequency, y * frequency) * amplitude;
+            maxValue += amplitude;
+            amplitude *= 0.5;
+            frequency *= 2.0;
+          }
+
+          return total / maxValue;
+        }
+
+        @compute @workgroup_size(8, 8)
+        fn main(@builtin(global_invocation_id) id: vec3u) {
+          if (id.x >= params.width || id.y >= params.height) {
+            return;
+          }
+
+          let coords = vec2f(f32(id.x), f32(id.y));
+
+          // Mouse influence
+          let mousePos = vec2f(params.mouseX, params.mouseY);
+          let dist = length(coords - mousePos);
+          let mouseInfluence = max(0.0, 1.0 - dist / 200.0) * 0.3;
+
+          // Perlin noise with time animation
+          let scale = params.scale;
+          let n1 = octaveNoise(coords.x * scale, coords.y * scale + params.time * 0.0006, 5u);
+          let n2 = octaveNoise(coords.x * scale + 100.0, coords.y * scale + params.time * 0.0004, 4u);
+
+          var value = (n1 + n2) * 0.5 + mouseInfluence;
+          value = (value + 1.0) * 0.5;
+
+          textureStore(outputTex, vec2i(id.xy), vec4f(value, value, value, 1.0));
+        }
+      `;
+
+      // Render shader with cell shading
+      const renderShader = `
+        struct Colors {
+          light: vec3f,
+          lightgray: vec3f,
+          gray: vec3f,
+          darkgray: vec3f,
+          secondary: vec3f,
+          tertiary: vec3f,
+          dark: vec3f,
+        }
+
+        @group(0) @binding(0) var noiseTex: texture_2d<f32>;
+        @group(0) @binding(1) var<uniform> colors: Colors;
+
+        @vertex
+        fn vertexMain(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+          var pos = array<vec2f, 6>(
+            vec2f(-1, -1), vec2f(1, -1), vec2f(-1, 1),
+            vec2f(-1, 1), vec2f(1, -1), vec2f(1, 1)
+          );
+          return vec4f(pos[i], 0.0, 1.0);
+        }
+
+        @fragment
+        fn fragmentMain(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+          let dims = textureDimensions(noiseTex);
+          let coords = vec2i(pos.xy);
+
+          let value = textureLoad(noiseTex, coords, 0).r;
+
+          // Edge detection
+          var edge = 0.0;
+          if (coords.x > 0 && coords.y > 0 && coords.x < i32(dims.x) - 1 && coords.y < i32(dims.y) - 1) {
+            let n0 = textureLoad(noiseTex, coords + vec2i(-1, 0), 0).r;
+            let n1 = textureLoad(noiseTex, coords + vec2i(1, 0), 0).r;
+            let n2 = textureLoad(noiseTex, coords + vec2i(0, -1), 0).r;
+            let n3 = textureLoad(noiseTex, coords + vec2i(0, 1), 0).r;
+            edge = abs(value - n0) + abs(value - n1) + abs(value - n2) + abs(value - n3);
+          }
+
+          // Cell shading with more color variety
+          var color: vec3f;
+          if (edge > 0.3) {
+            color = colors.dark;
+          } else if (value < 0.2) {
+            color = colors.secondary;
+          } else if (value < 0.35) {
+            color = colors.light;
+          } else if (value < 0.5) {
+            color = colors.tertiary;
+          } else if (value < 0.65) {
+            color = colors.lightgray;
+          } else if (value < 0.8) {
+            color = colors.darkgray;
+          } else {
+            color = colors.gray;
+          }
+
+          return vec4f(color, 1.0);
+        }
+      `;
+
+      const computeModule = device.createShaderModule({ code: computeShader });
+      const renderModule = device.createShaderModule({ code: renderShader });
+
+      // Buffers
+      const paramsBuffer = device.createBuffer({
+        size: 24,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      const permBuffer = device.createBuffer({
+        size: permutation.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(permBuffer, 0, permutation);
+
+      const colorsBuffer = device.createBuffer({
+        size: 112,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      // Pipelines
+      const computePipeline = device.createComputePipeline({
+        layout: 'auto',
+        compute: { module: computeModule, entryPoint: 'main' },
+      });
+
+      const renderPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: { module: renderModule, entryPoint: 'vertexMain' },
+        fragment: {
+          module: renderModule,
+          entryPoint: 'fragmentMain',
+          targets: [{ format: presentationFormat }],
+        },
+      });
+
+      // Mouse tracking
+      let mouseX = canvas.width / 2, mouseY = canvas.height / 2;
+      canvas.addEventListener('mousemove', (e) => {
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+      });
+
+      function updateColors() {
+        const colors = getThemeColors();
+        const colorData = new Float32Array([
+          ...colors.light, 0,
+          ...colors.lightgray, 0,
+          ...colors.gray, 0,
+          ...colors.darkgray, 0,
+          ...colors.secondary, 0,
+          ...colors.tertiary, 0,
+          ...colors.dark, 0,
+        ]);
+        device.queue.writeBuffer(colorsBuffer, 0, colorData);
+      }
+      updateColors();
+
+      const observer = new MutationObserver(updateColors);
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+      let time = 0;
+      function frame() {
+        // Update params
+        device.queue.writeBuffer(paramsBuffer, 0, new Float32Array([
+          canvas.width, canvas.height, time, mouseX, mouseY, 0.005
+        ]));
+
+        const encoder = device.createCommandEncoder();
+
+        // Compute pass
+        const computeBindGroup = device.createBindGroup({
+          layout: computePipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: paramsBuffer } },
+            { binding: 1, resource: { buffer: permBuffer } },
+            { binding: 2, resource: noiseTexture.createView() },
+          ],
+        });
+
+        const computePass = encoder.beginComputePass();
+        computePass.setPipeline(computePipeline);
+        computePass.setBindGroup(0, computeBindGroup);
+        computePass.dispatchWorkgroups(
+          Math.ceil(canvas.width / 8),
+          Math.ceil(canvas.height / 8)
+        );
+        computePass.end();
+
+        // Render pass
+        const renderBindGroup = device.createBindGroup({
+          layout: renderPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: noiseTexture.createView() },
+            { binding: 1, resource: { buffer: colorsBuffer } },
+          ],
+        });
+
+        const renderPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            loadOp: 'clear',
+            storeOp: 'store',
+          }],
+        });
+        renderPass.setPipeline(renderPipeline);
+        renderPass.setBindGroup(0, renderBindGroup);
+        renderPass.draw(6);
+        renderPass.end();
+
+        device.queue.submit([encoder.finish()]);
+
+        time += 1;
+        requestAnimationFrame(frame);
+      }
+
+      frame();
+    })();
+  </script>
+</body>
+</html>
