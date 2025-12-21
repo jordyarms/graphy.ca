@@ -188,9 +188,22 @@
     window.addEventListener('resize', resizeCanvas);
 
     // Theme management
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    themeIcon.textContent = savedTheme === 'dark' ? '🌙' : '☀️';
+    function getDefaultTheme() {
+      // Check localStorage first (user override)
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme) return savedTheme;
+
+      // Fall back to system preference
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark';
+      }
+
+      return 'light';
+    }
+
+    const currentTheme = getDefaultTheme();
+    document.documentElement.setAttribute('data-theme', currentTheme);
+    themeIcon.textContent = currentTheme === 'dark' ? '🌙' : '☀️';
 
     themeToggle.addEventListener('click', () => {
       const currentTheme = document.documentElement.getAttribute('data-theme');
