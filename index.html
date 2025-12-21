@@ -341,9 +341,17 @@
           let dist = length(coords - mousePos);
           let mouseInfluence = max(0.0, 1.0 - dist / 200.0) * 0.3;
 
-          // Perlin noise with time animation
+          // Perlin noise with time animation and subtle rotation
           let scale = params.scale;
-          let n1 = octaveNoise(coords.x * scale, coords.y * scale + params.time * 0.0006, 5u);
+          let center = vec2f(f32(params.width) * 0.5, f32(params.height) * 0.5);
+          let relativePos = coords - center;
+          let angle = params.time * 0.00005;
+          let rotated = vec2f(
+            relativePos.x * cos(angle) - relativePos.y * sin(angle),
+            relativePos.x * sin(angle) + relativePos.y * cos(angle)
+          ) + center;
+
+          let n1 = octaveNoise(rotated.x * scale, rotated.y * scale + params.time * 0.0006, 5u);
           let n2 = octaveNoise(coords.x * scale + 100.0, coords.y * scale + params.time * 0.0004, 4u);
 
           var value = (n1 + n2) * 0.5 + mouseInfluence;
