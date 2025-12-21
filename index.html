@@ -481,7 +481,7 @@
       function frame() {
         // Update params
         device.queue.writeBuffer(paramsBuffer, 0, new Float32Array([
-          canvas.width, canvas.height, time, mouseX, mouseY, 0.003
+          canvas.width, canvas.height, time, mouseX, mouseY, 0.005
         ]));
 
         const encoder = device.createCommandEncoder();
