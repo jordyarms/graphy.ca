@@ -200,174 +200,192 @@
       localStorage.setItem('theme', newTheme);
     });
 
+    function hexToRgb(hex) {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? [
+        parseInt(result[1], 16) / 255,
+        parseInt(result[2], 16) / 255,
+        parseInt(result[3], 16) / 255
+      ] : [1, 1, 1];
+    }
+
     function getThemeColors() {
       const style = getComputedStyle(document.documentElement);
       return {
-        light: style.getPropertyValue('--light').trim(),
-        lightgray: style.getPropertyValue('--lightgray').trim(),
-        gray: style.getPropertyValue('--gray').trim(),
-        darkgray: style.getPropertyValue('--darkgray').trim(),
-        dark: style.getPropertyValue('--dark').trim(),
-        secondary: style.getPropertyValue('--secondary').trim(),
-        tertiary: style.getPropertyValue('--tertiary').trim(),
+        light: hexToRgb(style.getPropertyValue('--light').trim()),
+        secondary: hexToRgb(style.getPropertyValue('--secondary').trim()),
+        tertiary: hexToRgb(style.getPropertyValue('--tertiary').trim()),
+        darkgray: hexToRgb(style.getPropertyValue('--darkgray').trim()),
+        dark: hexToRgb(style.getPropertyValue('--dark').trim()),
       };
     }
 
-    // Perlin Noise Implementation
-    class PerlinNoise {
-      constructor() {
-        this.permutation = [];
-        for (let i = 0; i < 256; i++) {
-          this.permutation[i] = i;
-        }
-        // Shuffle
-        for (let i = 255; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [this.permutation[i], this.permutation[j]] = [this.permutation[j], this.permutation[i]];
-        }
-        // Duplicate
-        this.p = [...this.permutation, ...this.permutation];
+    // WebGPU Perlin Noise
+    (async () => {
+      if (!navigator.gpu) {
+        console.error('WebGPU not supported');
+        return;
       }
 
-      fade(t) {
-        return t * t * t * (t * (t * 6 - 15) + 10);
+      const adapter = await navigator.gpu.requestAdapter();
+      const device = await adapter.requestDevice();
+      const context = canvas.getContext('webgpu');
+      const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        context.configure({
+          device,
+          format: presentationFormat,
+          alphaMode: 'premultiplied',
+        });
       }
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
 
-      lerp(t, a, b) {
-        return a + t * (b - a);
+      // Generate permutation table for Perlin noise
+      const permutation = new Uint32Array(512);
+      for (let i = 0; i < 256; i++) permutation[i] = i;
+      for (let i = 255; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [permutation[i], permutation[j]] = [permutation[j], permutation[i]];
       }
+      for (let i = 0; i < 256; i++) permutation[256 + i] = permutation[i];
 
-      grad(hash, x, y) {
-        const h = hash & 15;
-        const u = h < 8 ? x : y;
-        const v = h < 4 ? y : h === 12 || h === 14 ? x : 0;
-        return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
-      }
-
-      noise(x, y) {
-        const X = Math.floor(x) & 255;
-        const Y = Math.floor(y) & 255;
-
-        x -= Math.floor(x);
-        y -= Math.floor(y);
-
-        const u = this.fade(x);
-        const v = this.fade(y);
-
-        const a = this.p[X] + Y;
-        const aa = this.p[a];
-        const ab = this.p[a + 1];
-        const b = this.p[X + 1] + Y;
-        const ba = this.p[b];
-        const bb = this.p[b + 1];
-
-        return this.lerp(v,
-          this.lerp(u, this.grad(this.p[aa], x, y), this.grad(this.p[ba], x - 1, y)),
-          this.lerp(u, this.grad(this.p[ab], x, y - 1), this.grad(this.p[bb], x - 1, y - 1))
-        );
-      }
-
-      octaveNoise(x, y, octaves = 4, persistence = 0.5) {
-        let total = 0;
-        let frequency = 1;
-        let amplitude = 1;
-        let maxValue = 0;
-
-        for (let i = 0; i < octaves; i++) {
-          total += this.noise(x * frequency, y * frequency) * amplitude;
-          maxValue += amplitude;
-          amplitude *= persistence;
-          frequency *= 2;
+      // Compute shader - generates Perlin noise field
+      const computeShader = `
+        struct Params {
+          width: u32,
+          height: u32,
+          time: f32,
+          mouseX: f32,
+          mouseY: f32,
+          scale: f32,
         }
 
-        return total / maxValue;
-      }
-    }
+        @group(0) @binding(0) var<uniform> params: Params;
+        @group(0) @binding(1) var<storage, read> perm: array<u32, 512>;
+        @group(0) @binding(2) var outputTex: texture_storage_2d<rgba16float, write>;
 
-    // Canvas 2D Setup
-    const ctx = canvas.getContext('2d');
-    const perlin = new PerlinNoise();
-
-    function resizeCanvas() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    }
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-
-    // Mouse tracking
-    let mouseX = canvas.width / 2;
-    let mouseY = canvas.height / 2;
-    canvas.addEventListener('mousemove', (e) => {
-      mouseX = e.clientX;
-      mouseY = e.clientY;
-    });
-
-    // Animation state
-    let time = 0;
-
-    function render() {
-      const colors = getThemeColors();
-      const width = canvas.width;
-      const height = canvas.height;
-
-      // Scale for noise sampling
-      const scale = 0.003;
-      const timeScale = 0.0005;
-
-      // Create image data for pixel manipulation
-      const imageData = ctx.createImageData(width, height);
-      const data = imageData.data;
-
-      // Sample noise at lower resolution for performance
-      const resolution = 2;
-      const noiseData = [];
-
-      for (let y = 0; y < height; y += resolution) {
-        for (let x = 0; x < width; x += resolution) {
-          // Mouse influence
-          const dx = x - mouseX;
-          const dy = y - mouseY;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const mouseInfluence = Math.max(0, 1 - dist / 200) * 0.3;
-
-          // Multi-octave noise with time evolution
-          const noise1 = perlin.octaveNoise(x * scale, y * scale + time * timeScale, 4);
-          const noise2 = perlin.octaveNoise(x * scale + 100, y * scale + time * timeScale * 0.7, 3);
-
-          // Combine noise layers
-          let value = (noise1 + noise2) * 0.5 + mouseInfluence;
-          value = (value + 1) * 0.5; // Normalize to 0-1
-
-          noiseData.push(value);
+        fn fade(t: f32) -> f32 {
+          return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
         }
-      }
 
-      // Fill pixels with cell-shaded colors
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          const noiseX = Math.floor(x / resolution);
-          const noiseY = Math.floor(y / resolution);
-          const noiseWidth = Math.ceil(width / resolution);
-          const noiseIndex = noiseY * noiseWidth + noiseX;
-          const value = noiseData[noiseIndex] || 0;
+        fn grad(hash: u32, x: f32, y: f32) -> f32 {
+          let h = hash & 15u;
+          let u = select(y, x, h < 8u);
+          let v = select(select(0.0, x, h == 12u || h == 14u), y, h < 4u);
+          return select(-u, u, (h & 1u) == 0u) + select(-v, v, (h & 2u) == 0u);
+        }
 
-          // Edge detection
-          let edge = false;
-          if (x % resolution === 0 || y % resolution === 0) {
-            const neighbors = [
-              noiseData[noiseIndex - 1] || value,
-              noiseData[noiseIndex + 1] || value,
-              noiseData[noiseIndex - noiseWidth] || value,
-              noiseData[noiseIndex + noiseWidth] || value,
-            ];
-            const maxDiff = Math.max(...neighbors.map(n => Math.abs(n - value)));
-            edge = maxDiff > 0.15;
+        fn noise(x: f32, y: f32) -> f32 {
+          let X = u32(floor(x)) & 255u;
+          let Y = u32(floor(y)) & 255u;
+
+          let xf = fract(x);
+          let yf = fract(y);
+
+          let u = fade(xf);
+          let v = fade(yf);
+
+          let a = perm[X] + Y;
+          let aa = perm[a];
+          let ab = perm[a + 1u];
+          let b = perm[X + 1u] + Y;
+          let ba = perm[b];
+          let bb = perm[b + 1u];
+
+          return mix(
+            mix(grad(perm[aa], xf, yf), grad(perm[ba], xf - 1.0, yf), u),
+            mix(grad(perm[ab], xf, yf - 1.0), grad(perm[bb], xf - 1.0, yf - 1.0), u),
+            v
+          );
+        }
+
+        fn octaveNoise(x: f32, y: f32, octaves: u32) -> f32 {
+          var total = 0.0;
+          var frequency = 1.0;
+          var amplitude = 1.0;
+          var maxValue = 0.0;
+
+          for (var i = 0u; i < octaves; i++) {
+            total += noise(x * frequency, y * frequency) * amplitude;
+            maxValue += amplitude;
+            amplitude *= 0.5;
+            frequency *= 2.0;
           }
 
-          // Cell shading - quantize to palette
-          let color;
-          if (edge) {
+          return total / maxValue;
+        }
+
+        @compute @workgroup_size(8, 8)
+        fn main(@builtin(global_invocation_id) id: vec3u) {
+          if (id.x >= params.width || id.y >= params.height) {
+            return;
+          }
+
+          let coords = vec2f(f32(id.x), f32(id.y));
+
+          // Mouse influence
+          let mousePos = vec2f(params.mouseX, params.mouseY);
+          let dist = length(coords - mousePos);
+          let mouseInfluence = max(0.0, 1.0 - dist / 200.0) * 0.3;
+
+          // Perlin noise with time animation
+          let scale = params.scale;
+          let n1 = octaveNoise(coords.x * scale, coords.y * scale + params.time * 0.0003, 4u);
+          let n2 = octaveNoise(coords.x * scale + 100.0, coords.y * scale + params.time * 0.0002, 3u);
+
+          var value = (n1 + n2) * 0.5 + mouseInfluence;
+          value = (value + 1.0) * 0.5;
+
+          textureStore(outputTex, vec2i(id.xy), vec4f(value, value, value, 1.0));
+        }
+      `;
+
+      // Render shader with cell shading
+      const renderShader = `
+        struct Colors {
+          light: vec3f,
+          secondary: vec3f,
+          tertiary: vec3f,
+          darkgray: vec3f,
+          dark: vec3f,
+        }
+
+        @group(0) @binding(0) var noiseTex: texture_2d<f32>;
+        @group(0) @binding(1) var<uniform> colors: Colors;
+
+        @vertex
+        fn vertexMain(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+          var pos = array<vec2f, 6>(
+            vec2f(-1, -1), vec2f(1, -1), vec2f(-1, 1),
+            vec2f(-1, 1), vec2f(1, -1), vec2f(1, 1)
+          );
+          return vec4f(pos[i], 0.0, 1.0);
+        }
+
+        @fragment
+        fn fragmentMain(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+          let dims = textureDimensions(noiseTex);
+          let coords = vec2i(pos.xy);
+
+          let value = textureLoad(noiseTex, coords, 0).r;
+
+          // Edge detection
+          var edge = 0.0;
+          if (coords.x > 0 && coords.y > 0 && coords.x < i32(dims.x) - 1 && coords.y < i32(dims.y) - 1) {
+            let n0 = textureLoad(noiseTex, coords + vec2i(-1, 0), 0).r;
+            let n1 = textureLoad(noiseTex, coords + vec2i(1, 0), 0).r;
+            let n2 = textureLoad(noiseTex, coords + vec2i(0, -1), 0).r;
+            let n3 = textureLoad(noiseTex, coords + vec2i(0, 1), 0).r;
+            edge = abs(value - n0) + abs(value - n1) + abs(value - n2) + abs(value - n3);
+          }
+
+          // Cell shading
+          var color: vec3f;
+          if (edge > 0.3) {
             color = colors.dark;
           } else if (value < 0.3) {
             color = colors.light;
@@ -379,23 +397,133 @@
             color = colors.darkgray;
           }
 
-          // Parse color and set pixel
-          const rgb = color.match(/\d+/g) || [0, 0, 0];
-          const idx = (y * width + x) * 4;
-          data[idx] = parseInt(rgb[0]);
-          data[idx + 1] = parseInt(rgb[1]);
-          data[idx + 2] = parseInt(rgb[2]);
-          data[idx + 3] = 255;
+          return vec4f(color, 1.0);
         }
+      `;
+
+      const computeModule = device.createShaderModule({ code: computeShader });
+      const renderModule = device.createShaderModule({ code: renderShader });
+
+      // Create noise texture
+      let noiseTexture = device.createTexture({
+        size: [canvas.width, canvas.height],
+        format: 'rgba16float',
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+      });
+
+      // Buffers
+      const paramsBuffer = device.createBuffer({
+        size: 24,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      const permBuffer = device.createBuffer({
+        size: permutation.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      device.queue.writeBuffer(permBuffer, 0, permutation);
+
+      const colorsBuffer = device.createBuffer({
+        size: 80,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+
+      // Pipelines
+      const computePipeline = device.createComputePipeline({
+        layout: 'auto',
+        compute: { module: computeModule, entryPoint: 'main' },
+      });
+
+      const renderPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: { module: renderModule, entryPoint: 'vertexMain' },
+        fragment: {
+          module: renderModule,
+          entryPoint: 'fragmentMain',
+          targets: [{ format: presentationFormat }],
+        },
+      });
+
+      // Mouse tracking
+      let mouseX = canvas.width / 2, mouseY = canvas.height / 2;
+      canvas.addEventListener('mousemove', (e) => {
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+      });
+
+      function updateColors() {
+        const colors = getThemeColors();
+        const colorData = new Float32Array([
+          ...colors.light, 0,
+          ...colors.secondary, 0,
+          ...colors.tertiary, 0,
+          ...colors.darkgray, 0,
+          ...colors.dark, 0,
+        ]);
+        device.queue.writeBuffer(colorsBuffer, 0, colorData);
+      }
+      updateColors();
+
+      const observer = new MutationObserver(updateColors);
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+      let time = 0;
+      function frame() {
+        // Update params
+        device.queue.writeBuffer(paramsBuffer, 0, new Float32Array([
+          canvas.width, canvas.height, time, mouseX, mouseY, 0.003
+        ]));
+
+        const encoder = device.createCommandEncoder();
+
+        // Compute pass
+        const computeBindGroup = device.createBindGroup({
+          layout: computePipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: paramsBuffer } },
+            { binding: 1, resource: { buffer: permBuffer } },
+            { binding: 2, resource: noiseTexture.createView() },
+          ],
+        });
+
+        const computePass = encoder.beginComputePass();
+        computePass.setPipeline(computePipeline);
+        computePass.setBindGroup(0, computeBindGroup);
+        computePass.dispatchWorkgroups(
+          Math.ceil(canvas.width / 8),
+          Math.ceil(canvas.height / 8)
+        );
+        computePass.end();
+
+        // Render pass
+        const renderBindGroup = device.createBindGroup({
+          layout: renderPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: noiseTexture.createView() },
+            { binding: 1, resource: { buffer: colorsBuffer } },
+          ],
+        });
+
+        const renderPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: context.getCurrentTexture().createView(),
+            loadOp: 'clear',
+            storeOp: 'store',
+          }],
+        });
+        renderPass.setPipeline(renderPipeline);
+        renderPass.setBindGroup(0, renderBindGroup);
+        renderPass.draw(6);
+        renderPass.end();
+
+        device.queue.submit([encoder.finish()]);
+
+        time += 1;
+        requestAnimationFrame(frame);
       }
 
-      ctx.putImageData(imageData, 0, 0);
-
-      time += 1;
-      requestAnimationFrame(render);
-    }
-
-    render();
+      frame();
+    })();
   </script>
 </body>
 </html>
